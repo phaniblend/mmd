@@ -212,20 +212,22 @@ flowchart TD
                 const id = 'mermaid-graph-' + Date.now();
                 const { svg } = await mermaid.render(id, code);
 
-                // Inject the rendered SVG markup into innerG via a foreignObject
-                // Better: parse it and append the SVG children directly
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(svg, 'image/svg+xml');
-                const renderedSvg = doc.documentElement;
+                // Inject the full SVG as a foreignObject so Mermaid's
+                // internal <style> and <defs> are preserved intact
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = svg;
+                const renderedSvg = wrapper.querySelector('svg');
 
                 // Grab width/height from the rendered SVG
                 const w = parseFloat(renderedSvg.getAttribute('width'))  || 800;
                 const h = parseFloat(renderedSvg.getAttribute('height')) || 600;
 
-                // Copy all children of the rendered SVG into our innerG
-                Array.from(renderedSvg.childNodes).forEach(node => {
-                    innerG.node().appendChild(document.importNode(node, true));
-                });
+                // Place the whole SVG inside a foreignObject inside our <g>
+                const fo = innerG.append('foreignObject')
+                    .attr('width',  w)
+                    .attr('height', h);
+
+                fo.node().appendChild(renderedSvg);
 
                 // Fit the diagram to the visible area after render
                 fitToScreen(w, h);
