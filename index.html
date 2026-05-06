@@ -7,200 +7,292 @@
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Courier New', monospace;
             margin: 0;
             padding: 0;
             display: flex;
             flex-direction: column;
             height: 100vh;
+            background: #1a1a2e;
+            color: #e0e0e0;
         }
-        .container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
+
         .toolbar {
             display: flex;
-            padding: 10px;
-            background-color: #f0f0f0;
-            gap: 10px;
-        }
-        button {
+            align-items: center;
             padding: 8px 12px;
-            cursor: pointer;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+            gap: 8px;
+            flex-shrink: 0;
         }
+
+        .toolbar-title {
+            font-size: 13px;
+            color: #4a9eff;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+
+        .toggle-group {
+            display: flex;
+            border: 1px solid #0f3460;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .toggle-btn {
+            padding: 6px 14px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            letter-spacing: 1px;
+            transition: all 0.15s;
+        }
+
+        .toggle-btn:hover { background: #0f3460; color: #ccc; }
+        .toggle-btn.active { background: #0f3460; color: #4a9eff; font-weight: bold; }
+
+        .btn {
+            padding: 6px 14px;
+            background: #0f3460;
+            border: 1px solid #1a5276;
+            border-radius: 4px;
+            color: #4a9eff;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            letter-spacing: 1px;
+            transition: all 0.15s;
+        }
+
+        .btn:hover { background: #1a5276; color: #7dc3ff; }
+
+        .zoom-info {
+            margin-left: auto;
+            font-size: 11px;
+            color: #555;
+            font-family: inherit;
+        }
+
         .editor-container {
             display: flex;
             flex: 1;
             overflow: hidden;
         }
+
         #editor {
             flex: 1;
             border: none;
             resize: none;
-            font-family: monospace;
-            padding: 10px;
-            font-size: 16px;
+            font-family: 'Courier New', monospace;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #0d1117;
+            color: #c9d1d9;
+            outline: none;
             display: none;
         }
+
         #chart {
             flex: 1;
-            border: 1px solid #ccc;
             position: relative;
             overflow: hidden;
+            background: #f8f9fa;
+            cursor: grab;
         }
-        .toggle-container {
-            display: flex;
-            margin-bottom: 10px;
-        }
-        .toggle-btn {
-            padding: 10px;
-            background-color: #f0f0f0;
-            border: none;
-            cursor: pointer;
-            flex: 1;
-            text-align: center;
-            font-weight: bold;
-        }
-        .toggle-btn.active {
-            background-color: #e0e0e0;
-            font-weight: bolder;
-        }
-        #chart-container {
+
+        #chart.panning { cursor: grabbing; }
+
+        #chart-svg-layer {
             width: 100%;
             height: 100%;
-            overflow: hidden;
         }
-        #mermaid-container {
-            width: 100%;
-            height: 100%;
+
+        .hint {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.5);
+            color: #aaa;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 10px;
+            pointer-events: none;
+            white-space: nowrap;
+            letter-spacing: 0.5px;
+        }
+
+        .error-msg {
+            color: #e74c3c;
+            padding: 20px;
+            font-size: 13px;
+            background: #1a0000;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="toolbar">
-            <div class="toggle-container">
-                <button class="toggle-btn active" onclick="toggleView('chart')">Chart</button>
-                <button class="toggle-btn" onclick="toggleView('editor')">Editor</button>
-            </div>
-            <button onclick="renderMermaid()">Render</button>
-            <button onclick="resetZoom()">Reset Zoom</button>
+    <div class="toolbar">
+        <span class="toolbar-title">Mermaid</span>
+        <div class="toggle-group">
+            <button class="toggle-btn active" id="btn-chart" onclick="toggleView('chart')">Chart</button>
+            <button class="toggle-btn" id="btn-editor" onclick="toggleView('editor')">Editor</button>
         </div>
-        <div class="editor-container">
-            <textarea id="editor" spellcheck="false">
-%% Example Flowchart
+        <button class="btn" onclick="renderMermaid()">⟳ Render</button>
+        <button class="btn" onclick="fitToScreen()">⤢ Fit</button>
+        <button class="btn" onclick="resetZoom()">1:1 Reset</button>
+        <span class="zoom-info" id="zoom-info">100%</span>
+    </div>
+
+    <div class="editor-container">
+        <textarea id="editor" spellcheck="false">%% Example Flowchart
 flowchart TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Do something]
     B -->|No| D[Do something else]
     C --> E[End]
     D --> E
-            </textarea>
-            <div id="chart">
-                <div id="chart-container">
-                    <div id="mermaid-container"></div>
-                </div>
-            </div>
+        </textarea>
+
+        <div id="chart">
+            <!-- D3 will create an SVG here that covers the whole chart area -->
+            <div class="hint">🖱 Drag to pan &nbsp;·&nbsp; Scroll to zoom</div>
         </div>
     </div>
 
     <script>
-        let svgElement = null;
-        let zoom = d3.zoom()
-            .scaleExtent([0.1, 10])
-            .on('zoom', zoomed);
+        // ── D3 zoom setup ──────────────────────────────────────────────────────
+        let zoomBehavior = d3.zoom()
+            .scaleExtent([0.05, 20])
+            .on('zoom', ({ transform }) => {
+                if (innerG) innerG.attr('transform', transform);
+                document.getElementById('zoom-info').textContent =
+                    Math.round(transform.k * 100) + '%';
+            });
 
-        function zoomed(event) {
-            d3.select('#mermaid-container svg').attr('transform', event.transform);
+        // The persistent SVG that lives in #chart
+        const chartDiv = document.getElementById('chart');
+        const outerSvg = d3.select(chartDiv)
+            .append('svg')
+            .attr('id', 'chart-svg-layer')
+            .style('position', 'absolute')
+            .style('top', 0).style('left', 0)
+            .style('width', '100%').style('height', '100%');
+
+        // A <g> inside the SVG — we pan/zoom this
+        let innerG = outerSvg.append('g').attr('id', 'inner-g');
+
+        // Attach zoom to the outer SVG
+        outerSvg.call(zoomBehavior)
+            .on('dblclick.zoom', null); // disable double-click zoom
+
+        // Grab cursor while panning
+        outerSvg.on('mousedown', () => chartDiv.classList.add('panning'))
+                 .on('mouseup',   () => chartDiv.classList.remove('panning'));
+
+        // ── Render ─────────────────────────────────────────────────────────────
+        async function renderMermaid() {
+            const code = document.getElementById('editor').value.trim();
+            innerG.selectAll('*').remove();   // clear previous diagram
+
+            mermaid.initialize({ startOnLoad: false, theme: 'default', logLevel: 5 });
+
+            try {
+                // mermaid.render returns { svg, bindFunctions }
+                const id = 'mermaid-graph-' + Date.now();
+                const { svg } = await mermaid.render(id, code);
+
+                // Inject the rendered SVG markup into innerG via a foreignObject
+                // Better: parse it and append the SVG children directly
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(svg, 'image/svg+xml');
+                const renderedSvg = doc.documentElement;
+
+                // Grab width/height from the rendered SVG
+                const w = parseFloat(renderedSvg.getAttribute('width'))  || 800;
+                const h = parseFloat(renderedSvg.getAttribute('height')) || 600;
+
+                // Copy all children of the rendered SVG into our innerG
+                Array.from(renderedSvg.childNodes).forEach(node => {
+                    innerG.node().appendChild(document.importNode(node, true));
+                });
+
+                // Fit the diagram to the visible area after render
+                fitToScreen(w, h);
+
+            } catch (err) {
+                console.error(err);
+                innerG.append('foreignObject')
+                    .attr('width', 600).attr('height', 200)
+                    .attr('x', 20).attr('y', 20)
+                    .append('xhtml:div')
+                    .attr('class', 'error-msg')
+                    .text('⚠ Error: ' + err.message);
+            }
+        }
+
+        // ── Fit / Reset ────────────────────────────────────────────────────────
+        function fitToScreen(diagW, diagH) {
+            const vw = chartDiv.clientWidth;
+            const vh = chartDiv.clientHeight;
+
+            // If dimensions weren't passed, try to get them from the bounding box
+            if (!diagW || !diagH) {
+                const bb = innerG.node().getBBox();
+                diagW = bb.width  || vw;
+                diagH = bb.height || vh;
+            }
+
+            const scale = Math.min(vw / (diagW + 40), vh / (diagH + 40), 1);
+            const tx = (vw - diagW * scale) / 2;
+            const ty = (vh - diagH * scale) / 2;
+
+            outerSvg.call(
+                zoomBehavior.transform,
+                d3.zoomIdentity.translate(tx, ty).scale(scale)
+            );
         }
 
         function resetZoom() {
-            d3.select('#mermaid-container').call(zoom.transform, d3.zoomIdentity);
+            outerSvg.transition().duration(300).call(
+                zoomBehavior.transform,
+                d3.zoomIdentity.translate(
+                    chartDiv.clientWidth  / 2,
+                    chartDiv.clientHeight / 2
+                ).scale(1)
+            );
         }
 
+        // ── Toggle view ────────────────────────────────────────────────────────
         function toggleView(view) {
             const editor = document.getElementById('editor');
-            const chart = document.getElementById('chart');
-            const editorBtn = document.querySelector('.toggle-btn:nth-child(2)');
-            const chartBtn = document.querySelector('.toggle-btn:nth-child(1)');
+            const chart  = document.getElementById('chart');
 
             if (view === 'editor') {
                 editor.style.display = 'block';
-                chart.style.display = 'none';
-                editorBtn.classList.add('active');
-                chartBtn.classList.remove('active');
+                chart.style.display  = 'none';
+                document.getElementById('btn-editor').classList.add('active');
+                document.getElementById('btn-chart').classList.remove('active');
             } else {
                 editor.style.display = 'none';
-                chart.style.display = 'flex';
-                editorBtn.classList.remove('active');
-                chartBtn.classList.add('active');
+                chart.style.display  = 'block';
+                document.getElementById('btn-chart').classList.add('active');
+                document.getElementById('btn-editor').classList.remove('active');
             }
         }
 
-        function renderMermaid() {
-            const code = document.getElementById('editor').value;
-            const container = document.getElementById('mermaid-container');
-            container.innerHTML = '';
-
-            try {
-                mermaid.initialize({
-                    startOnLoad: false,
-                    theme: 'default',
-                    logLevel: 5,
-                });
-
-                container.insertAdjacentHTML('beforeend', `<div class="mermaid">${code}</div>`);
-                mermaid.init(undefined, container.querySelector('.mermaid'));
-
-                // Wait for Mermaid to render the SVG
-                setTimeout(() => {
-                    const svg = container.querySelector('svg');
-                    if (svg) {
-                        svgElement = d3.select(svg);
-                        d3.select('#mermaid-container').call(zoom)
-                            .call(zoom.transform, d3.zoomIdentity)
-                            .on('dblclick.zoom', null);
-
-                        // Add drag to pan functionality
-                        svgElement.call(d3.drag()
-                            .on('start', dragStarted)
-                            .on('drag', dragged)
-                            .on('end', dragEnded));
-
-                        function dragStarted(event) {
-                            if (event.sourceEvent.ctrlKey) {
-                                return;
-                            }
-                            svgElement.classed('dragging', true);
-                        }
-
-                        function dragged(event) {
-                            if (event.sourceEvent.ctrlKey) {
-                                return;
-                            }
-                            const transform = d3.zoomTransform(svgElement.node());
-                            const dx = event.dx * (1 / transform.k);
-                            const dy = event.dy * (1 / transform.k);
-                            svgElement.attr('transform', `translate(${transform.x + dx}, ${transform.y + dy}) scale(${transform.k})`);
-                        }
-
-                        function dragEnded() {
-                            svgElement.classed('dragging', false);
-                        }
-                    }
-                }, 500);
-            } catch (error) {
-                console.error('Error rendering mermaid diagram:', error);
-                container.innerHTML = `<div style="color: red; padding: 20px;">Error rendering diagram: ${error.message}</div>`;
-            }
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            renderMermaid();
-        });
+        // ── Init ───────────────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', renderMermaid);
     </script>
 </body>
 </html>
