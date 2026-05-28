@@ -41,7 +41,7 @@
 
         .toggle-group {
             display: flex;
-            border: 1px solid #0f3460;
+            border: 1px solid #4a9eff;
             border-radius: 4px;
             overflow: hidden;
         }
@@ -50,7 +50,7 @@
             padding: 6px 14px;
             background: transparent;
             border: none;
-            color: #888;
+            color: #445;
             cursor: pointer;
             font-size: 12px;
             font-family: inherit;
@@ -58,8 +58,14 @@
             transition: all 0.15s;
         }
 
-        .toggle-btn:hover { background: #0f3460; color: #ccc; }
-        .toggle-btn.active { background: #0f3460; color: #4a9eff; font-weight: bold; }
+        .toggle-btn:hover { background: #0f3460; color: #7dc3ff; }
+
+        /* ACTIVE = bright solid fill, white text — clearly selected */
+        .toggle-btn.active {
+            background: #4a9eff;
+            color: #fff;
+            font-weight: bold;
+        }
 
         .btn {
             padding: 6px 14px;
@@ -79,7 +85,7 @@
         .zoom-info {
             margin-left: auto;
             font-size: 11px;
-            color: #555;
+            color: #7a9abb;
             font-family: inherit;
         }
 
@@ -165,7 +171,6 @@ flowchart TD
         </textarea>
 
         <div id="chart">
-            <!-- D3 will create an SVG here that covers the whole chart area -->
             <div class="hint">🖱 Drag to pan &nbsp;·&nbsp; Scroll to zoom</div>
         </div>
     </div>
@@ -180,8 +185,8 @@ flowchart TD
                     Math.round(transform.k * 100) + '%';
             });
 
-        // The persistent SVG that lives in #chart
         const chartDiv = document.getElementById('chart');
+
         const outerSvg = d3.select(chartDiv)
             .append('svg')
             .attr('id', 'chart-svg-layer')
@@ -194,72 +199,71 @@ flowchart TD
 
         // Attach zoom to the outer SVG
         outerSvg.call(zoomBehavior)
-            .on('dblclick.zoom', null); // disable double-click zoom
+            .on('dblclick.zoom', null);
 
-        // Grab cursor while panning
         outerSvg.on('mousedown', () => chartDiv.classList.add('panning'))
                  .on('mouseup',   () => chartDiv.classList.remove('panning'));
 
         // ── Render ─────────────────────────────────────────────────────────────
         async function renderMermaid() {
             const code = document.getElementById('editor').value.trim();
-            innerG.selectAll('*').remove();   // clear previous diagram
+            innerG.selectAll('*').remove();
 
             mermaid.initialize({ startOnLoad: false, theme: 'default', logLevel: 5 });
 
             try {
-                // mermaid.render returns { svg, bindFunctions }
                 const id = 'mermaid-graph-' + Date.now();
                 const { svg } = await mermaid.render(id, code);
 
-                // Inject the full SVG as a foreignObject so Mermaid's
-                // internal <style> and <defs> are preserved intact
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = svg;
-                const renderedSvg = wrapper.querySelector('svg');
+                // Parse the returned SVG string
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
+                const renderedSvg = svgDoc.querySelector('svg');
 
-                // Grab width/height from the rendered SVG
-                const w = parseFloat(renderedSvg.getAttribute('width'))  || 800;
-                const h = parseFloat(renderedSvg.getAttribute('height')) || 600;
+                // Copy all children (defs, g, style) directly into innerG
+                // so getBBox() works natively without foreignObject
+                Array.from(renderedSvg.childNodes).forEach(node => {
+                    innerG.node().appendChild(document.importNode(node, true));
+                });
 
-                // Place the whole SVG inside a foreignObject inside our <g>
-                const fo = innerG.append('foreignObject')
-                    .attr('width',  w)
-                    .attr('height', h);
-
-                fo.node().appendChild(renderedSvg);
-
-                // Fit the diagram to the visible area after render
-                fitToScreen(w, h);
+                // Wait one frame for the browser to lay out the new nodes,
+                // then fit to screen using the real bounding box
+                requestAnimationFrame(() => {
+                    fitToScreen();
+                });
 
             } catch (err) {
                 console.error(err);
-                innerG.append('foreignObject')
+                const fo = innerG.append('foreignObject')
                     .attr('width', 600).attr('height', 200)
-                    .attr('x', 20).attr('y', 20)
-                    .append('xhtml:div')
+                    .attr('x', 20).attr('y', 20);
+                fo.append('xhtml:div')
                     .attr('class', 'error-msg')
                     .text('⚠ Error: ' + err.message);
             }
         }
 
-        // ── Fit / Reset ────────────────────────────────────────────────────────
-        function fitToScreen(diagW, diagH) {
+        // ── Fit to screen — uses real SVG bbox, fills viewport with padding ───
+        function fitToScreen() {
             const vw = chartDiv.clientWidth;
             const vh = chartDiv.clientHeight;
 
-            // If dimensions weren't passed, try to get them from the bounding box
-            if (!diagW || !diagH) {
-                const bb = innerG.node().getBBox();
-                diagW = bb.width  || vw;
-                diagH = bb.height || vh;
-            }
+            let bb;
+            try { bb = innerG.node().getBBox(); } catch(e) { return; }
 
-            const scale = Math.min(vw / (diagW + 40), vh / (diagH + 40), 1);
-            const tx = (vw - diagW * scale) / 2;
-            const ty = (vh - diagH * scale) / 2;
+            if (!bb || bb.width === 0 || bb.height === 0) return;
 
-            outerSvg.call(
+            const padding = 40;
+            const scaleX = (vw - padding * 2) / bb.width;
+            const scaleY = (vh - padding * 2) / bb.height;
+            // Fill the full width, but never exceed height
+            const scale = Math.min(scaleX, scaleY);
+
+            // Center the diagram in the viewport
+            const tx = (vw - bb.width  * scale) / 2 - bb.x * scale;
+            const ty = (vh - bb.height * scale) / 2 - bb.y * scale;
+
+            outerSvg.transition().duration(300).call(
                 zoomBehavior.transform,
                 d3.zoomIdentity.translate(tx, ty).scale(scale)
             );
@@ -290,6 +294,8 @@ flowchart TD
                 chart.style.display  = 'block';
                 document.getElementById('btn-chart').classList.add('active');
                 document.getElementById('btn-editor').classList.remove('active');
+                // Re-fit whenever switching back to chart view
+                requestAnimationFrame(fitToScreen);
             }
         }
 
