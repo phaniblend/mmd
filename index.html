@@ -135,7 +135,7 @@
 
         .error-msg {
             color: #e74c3c;
-            padding: 20px;
+            padding: 16px;
             font-size: 13px;
             background: #1a0000;
             border-radius: 4px;
@@ -192,12 +192,11 @@ flowchart TD
         let innerG = outerSvg.append('g').attr('id', 'inner-g');
 
         outerSvg.call(zoomBehavior).on('dblclick.zoom', null);
-
         outerSvg.on('mousedown', () => chartDiv.classList.add('panning'))
                  .on('mouseup',   () => chartDiv.classList.remove('panning'));
 
-        // Tracks last known diagram dimensions for fitToScreen
-        let lastDiagW = 0, lastDiagH = 0;
+        // Last rendered diagram dimensions — used by ⤢ Fit button
+        let lastW = 0, lastH = 0;
 
         // ── Render ─────────────────────────────────────────────────────────────
         async function renderMermaid() {
@@ -208,66 +207,59 @@ flowchart TD
                 startOnLoad: false,
                 theme: 'default',
                 logLevel: 5,
-                flowchart: { curve: 'step' }   // orthogonal right-angle connectors
+                flowchart: { curve: 'step' }   // right-angle orthogonal connectors
             });
 
             try {
                 const id = 'mermaid-graph-' + Date.now();
                 const { svg } = await mermaid.render(id, code);
 
-                // ── Parse the SVG string to extract its real dimensions ────────
-                // Mermaid always sets explicit width/height or viewBox on the root
-                // <svg>. We read those here — BEFORE embedding — so fitToScreen
-                // has accurate numbers without needing getBBox() (which silently
-                // returns 0 for foreignObject content).
-                const parser = new DOMParser();
-                const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
-                const renderedSvg = svgDoc.querySelector('svg');
+                // ── Parse via an HTML div (NOT DOMParser) ─────────────────────
+                // Using innerHTML on a real div element makes the browser parse
+                // the SVG in "HTML parsing mode" which correctly handles both:
+                //   • SVG namespaces for all graphic elements
+                //   • HTML namespaces for <foreignObject> content (node labels)
+                // DOMParser with image/svg+xml parses foreignObject content as
+                // XML, not HTML — foreignObject labels come out as unknown XML
+                // nodes that don't render, so node boxes appear empty.
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = svg;
+                const renderedSvg = wrapper.querySelector('svg');
 
+                // ── Read explicit dimensions Mermaid sets on the root <svg> ───
+                // These are always numeric px values (e.g. "2160.5"), never "%"
                 let diagW = parseFloat(renderedSvg.getAttribute('width'));
                 let diagH = parseFloat(renderedSvg.getAttribute('height'));
 
-                // Fall back to viewBox if width/height are missing or % strings
+                // viewBox fallback for themes that omit width/height attributes
                 if (!diagW || !diagH || isNaN(diagW) || isNaN(diagH)) {
-                    const vb = renderedSvg.getAttribute('viewBox');
-                    if (vb) {
-                        const parts = vb.trim().split(/[\s,]+/);
-                        diagW = parseFloat(parts[2]);
-                        diagH = parseFloat(parts[3]);
-                    }
+                    const vb = (renderedSvg.getAttribute('viewBox') || '').trim().split(/[\s,]+/);
+                    diagW = parseFloat(vb[2]) || 800;
+                    diagH = parseFloat(vb[3]) || 600;
                 }
 
-                // Last resort defaults
-                diagW = diagW || 800;
-                diagH = diagH || 600;
+                lastW = diagW;
+                lastH = diagH;
 
-                // Store for re-use by the ⤢ Fit button
-                lastDiagW = diagW;
-                lastDiagH = diagH;
-
-                // ── Embed the complete SVG inside a foreignObject ──────────────
-                // This is the only approach that correctly renders Mermaid's
-                // <foreignObject> node labels (HTML inside SVG). Transplanting
-                // child nodes loses the HTML namespace and labels go blank.
+                // ── Embed the complete SVG inside a foreignObject ─────────────
+                // appendChild moves renderedSvg (an SVG element) into the
+                // foreignObject. This is the ONLY approach that keeps the SVG's
+                // internal structure intact — the CSS #id selectors, the defs,
+                // the markers, and critically the <foreignObject> node labels
+                // all render correctly because the SVG is a self-contained unit.
                 const fo = innerG.append('foreignObject')
                     .attr('width',  diagW)
                     .attr('height', diagH);
 
-                // Use xhtml: namespace so the div is treated as HTML, not XML
-                const container = fo.append('xhtml:div')
-                    .style('width',  diagW + 'px')
-                    .style('height', diagH + 'px')
-                    .style('overflow', 'hidden');
+                fo.node().appendChild(renderedSvg);
 
-                container.node().innerHTML = svg;
-
-                // Give the browser one frame to paint, then fit
+                // One rAF so the browser paints before we compute the transform
                 requestAnimationFrame(() => fitToScreen(diagW, diagH));
 
             } catch (err) {
                 console.error(err);
                 const fo = innerG.append('foreignObject')
-                    .attr('width', 640).attr('height', 120)
+                    .attr('width', 640).attr('height', 80)
                     .attr('x', 20).attr('y', 20);
                 fo.append('xhtml:div')
                     .attr('class', 'error-msg')
@@ -276,26 +268,23 @@ flowchart TD
         }
 
         // ── Fit to screen ──────────────────────────────────────────────────────
-        // Uses explicit diagram dimensions (not getBBox which is 0 for foreignObject).
-        function fitToScreen(diagW, diagH) {
-            // If called from button, reuse last known dimensions
-            if (!diagW || !diagH) {
-                diagW = lastDiagW;
-                diagH = lastDiagH;
-            }
-            if (!diagW || !diagH) return;
+        function fitToScreen(w, h) {
+            // Button calls with no args → reuse stored dimensions
+            if (!w || !h) { w = lastW; h = lastH; }
+            if (!w || !h) return;
 
-            const vw = chartDiv.clientWidth;
-            const vh = chartDiv.clientHeight;
-            const padding = 48;
+            const vw  = chartDiv.clientWidth;
+            const vh  = chartDiv.clientHeight;
+            const pad = 48;
 
             const scale = Math.min(
-                (vw - padding * 2) / diagW,
-                (vh - padding * 2) / diagH
+                (vw - pad * 2) / w,
+                (vh - pad * 2) / h
             );
 
-            const tx = (vw - diagW * scale) / 2;
-            const ty = (vh - diagH * scale) / 2;
+            // Center horizontally and vertically
+            const tx = (vw - w * scale) / 2;
+            const ty = (vh - h * scale) / 2;
 
             outerSvg.transition().duration(300).call(
                 zoomBehavior.transform,
