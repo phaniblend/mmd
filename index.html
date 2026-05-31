@@ -56,14 +56,8 @@
             letter-spacing: 1px;
             transition: all 0.15s;
         }
-
         .toggle-btn:hover { background: #0f3460; color: #7dc3ff; }
-
-        .toggle-btn.active {
-            background: #4a9eff;
-            color: #fff;
-            font-weight: bold;
-        }
+        .toggle-btn.active { background: #4a9eff; color: #fff; font-weight: bold; }
 
         .btn {
             padding: 6px 14px;
@@ -77,7 +71,6 @@
             letter-spacing: 1px;
             transition: all 0.15s;
         }
-
         .btn:hover { background: #1a5276; color: #7dc3ff; }
 
         .zoom-info {
@@ -87,11 +80,7 @@
             font-family: inherit;
         }
 
-        .editor-container {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
+        .editor-container { display: flex; flex: 1; overflow: hidden; }
 
         #editor {
             flex: 1;
@@ -114,7 +103,6 @@
             background: #f8f9fa;
             cursor: grab;
         }
-
         #chart.panning { cursor: grabbing; }
         #chart-svg-layer { width: 100%; height: 100%; }
 
@@ -156,14 +144,22 @@
     </div>
 
     <div class="editor-container">
-        <textarea id="editor" spellcheck="false">%% Example Flowchart
-flowchart TD
-    A[Start] --> B{Decision}
-    B -->|Yes| C[Do something]
-    B -->|No| D[Do something else]
-    C --> E[End]
-    D --> E
-        </textarea>
+        <textarea id="editor" spellcheck="false">--Title-- Sign-Out Flow
+
+sequenceDiagram
+  autonumber
+  actor User
+  participant Browser
+  participant D2C as D2C(UIV2) Spotlight UI
+  participant BFF as D2C(UIV2) BFF<br/>(SSR server)
+  participant OktaSDK as Okta Auth SDK
+  participant Okta as Okta IdP
+  User->>D2C: Sign out
+  D2C->>BFF: Clear session
+  BFF->>Browser: Expire HttpOnly session cookies
+  D2C->>OktaSDK: End client auth state
+  OktaSDK->>Okta: End SSO session (optional)
+  Okta-->>Browser: Redirect to public page</textarea>
 
         <div id="chart">
             <div class="hint">🖱 Drag to pan &nbsp;·&nbsp; Scroll to zoom</div>
@@ -171,6 +167,10 @@ flowchart TD
     </div>
 
     <script>
+        // ── Constants ──────────────────────────────────────────────────────────
+        const TITLE_OFFSET = 75;   // px gap reserved above the diagram for title
+        const TITLE_FONT   = "bold 20px 'Trebuchet MS', Arial, sans-serif";
+
         // ── D3 zoom setup ──────────────────────────────────────────────────────
         let zoomBehavior = d3.zoom()
             .scaleExtent([0.05, 20])
@@ -195,66 +195,96 @@ flowchart TD
         outerSvg.on('mousedown', () => chartDiv.classList.add('panning'))
                  .on('mouseup',   () => chartDiv.classList.remove('panning'));
 
-        // Last rendered diagram dimensions — used by ⤢ Fit button
         let lastW = 0, lastH = 0;
+
+        // ── Title extraction ───────────────────────────────────────────────────
+        // Strips the optional "--Title-- My Title" line from the top of the code
+        // and returns { title, cleanCode }.
+        // Syntax:  --Title-- Whatever text you want
+        function extractTitle(raw) {
+            const match = raw.match(/^[ \t]*--Title--[ \t]+(.+)$/im);
+            if (!match) return { title: null, cleanCode: raw.trim() };
+            const title     = match[1].trim();
+            const cleanCode = raw.replace(match[0], '').trim();
+            return { title, cleanCode };
+        }
 
         // ── Render ─────────────────────────────────────────────────────────────
         async function renderMermaid() {
-            const code = document.getElementById('editor').value.trim();
+            const raw = document.getElementById('editor').value;
             innerG.selectAll('*').remove();
+
+            const { title, cleanCode } = extractTitle(raw);
 
             mermaid.initialize({
                 startOnLoad: false,
                 theme: 'default',
                 logLevel: 5,
-                flowchart: { curve: 'step' }   // right-angle orthogonal connectors
+                flowchart: { curve: 'step' }
             });
 
             try {
                 const id = 'mermaid-graph-' + Date.now();
-                const { svg } = await mermaid.render(id, code);
+                const { svg } = await mermaid.render(id, cleanCode);
 
-                // ── Parse via an HTML div (NOT DOMParser) ─────────────────────
-                // Using innerHTML on a real div element makes the browser parse
-                // the SVG in "HTML parsing mode" which correctly handles both:
-                //   • SVG namespaces for all graphic elements
-                //   • HTML namespaces for <foreignObject> content (node labels)
-                // DOMParser with image/svg+xml parses foreignObject content as
-                // XML, not HTML — foreignObject labels come out as unknown XML
-                // nodes that don't render, so node boxes appear empty.
+                // Parse via HTML innerHTML so SVG + foreignObject namespaces
+                // are both handled correctly (DOMParser xml mode drops HTML
+                // namespace inside foreignObjects, making node labels vanish)
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = svg;
                 const renderedSvg = wrapper.querySelector('svg');
 
-                // ── Read explicit dimensions Mermaid sets on the root <svg> ───
-                // These are always numeric px values (e.g. "2160.5"), never "%"
+                // Read explicit numeric dimensions Mermaid sets on the root <svg>
                 let diagW = parseFloat(renderedSvg.getAttribute('width'));
                 let diagH = parseFloat(renderedSvg.getAttribute('height'));
 
-                // viewBox fallback for themes that omit width/height attributes
+                // viewBox fallback
                 if (!diagW || !diagH || isNaN(diagW) || isNaN(diagH)) {
                     const vb = (renderedSvg.getAttribute('viewBox') || '').trim().split(/[\s,]+/);
                     diagW = parseFloat(vb[2]) || 800;
                     diagH = parseFloat(vb[3]) || 600;
                 }
 
-                lastW = diagW;
-                lastH = diagH;
+                // ── Render title ───────────────────────────────────────────────
+                // Drawn at y=48 so it sits 48px from the top of the innerG
+                // coordinate space. The diagram is then pushed down TITLE_OFFSET
+                // px so they never overlap.
+                const yOffset = title ? TITLE_OFFSET : 0;
 
-                // ── Embed the complete SVG inside a foreignObject ─────────────
-                // appendChild moves renderedSvg (an SVG element) into the
-                // foreignObject. This is the ONLY approach that keeps the SVG's
-                // internal structure intact — the CSS #id selectors, the defs,
-                // the markers, and critically the <foreignObject> node labels
-                // all render correctly because the SVG is a self-contained unit.
+                if (title) {
+                    // Underline bar
+                    innerG.append('line')
+                        .attr('x1', 0).attr('y1', 56)
+                        .attr('x2', diagW).attr('y2', 56)
+                        .attr('stroke', '#c0c8d8')
+                        .attr('stroke-width', 1.5);
+
+                    // Bold title text
+                    innerG.append('text')
+                        .attr('x', 0)
+                        .attr('y', 42)
+                        .attr('font-family', "'Trebuchet MS', Arial, sans-serif")
+                        .attr('font-size', '20px')
+                        .attr('font-weight', 'bold')
+                        .attr('fill', '#1a1a2e')
+                        .text(title);
+                }
+
+                // ── Embed diagram ──────────────────────────────────────────────
+                // foreignObject starts yOffset px below the title
                 const fo = innerG.append('foreignObject')
+                    .attr('x', 0)
+                    .attr('y', yOffset)
                     .attr('width',  diagW)
                     .attr('height', diagH);
 
                 fo.node().appendChild(renderedSvg);
 
-                // One rAF so the browser paints before we compute the transform
-                requestAnimationFrame(() => fitToScreen(diagW, diagH));
+                // Total bounding height includes title gap
+                lastW = diagW;
+                lastH = diagH + yOffset;
+
+                requestAnimationFrame(() => fitToScreen(lastW, lastH));
 
             } catch (err) {
                 console.error(err);
@@ -269,20 +299,13 @@ flowchart TD
 
         // ── Fit to screen ──────────────────────────────────────────────────────
         function fitToScreen(w, h) {
-            // Button calls with no args → reuse stored dimensions
             if (!w || !h) { w = lastW; h = lastH; }
             if (!w || !h) return;
 
             const vw  = chartDiv.clientWidth;
             const vh  = chartDiv.clientHeight;
             const pad = 48;
-
-            const scale = Math.min(
-                (vw - pad * 2) / w,
-                (vh - pad * 2) / h
-            );
-
-            // Center horizontally and vertically
+            const scale = Math.min((vw - pad * 2) / w, (vh - pad * 2) / h);
             const tx = (vw - w * scale) / 2;
             const ty = (vh - h * scale) / 2;
 
@@ -306,7 +329,6 @@ flowchart TD
         function toggleView(view) {
             const editor = document.getElementById('editor');
             const chart  = document.getElementById('chart');
-
             if (view === 'editor') {
                 editor.style.display = 'block';
                 chart.style.display  = 'none';
