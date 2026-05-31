@@ -144,22 +144,7 @@
     </div>
 
     <div class="editor-container">
-        <textarea id="editor" spellcheck="false">--Title-- Sign-Out Flow
-
-sequenceDiagram
-  autonumber
-  actor User
-  participant Browser
-  participant D2C as D2C(UIV2) Spotlight UI
-  participant BFF as D2C(UIV2) BFF<br/>(SSR server)
-  participant OktaSDK as Okta Auth SDK
-  participant Okta as Okta IdP
-  User->>D2C: Sign out
-  D2C->>BFF: Clear session
-  BFF->>Browser: Expire HttpOnly session cookies
-  D2C->>OktaSDK: End client auth state
-  OktaSDK->>Okta: End SSO session (optional)
-  Okta-->>Browser: Redirect to public page</textarea>
+        <textarea id="editor" spellcheck="false" autocomplete="off"></textarea>
 
         <div id="chart">
             <div class="hint">🖱 Drag to pan &nbsp;·&nbsp; Scroll to zoom</div>
@@ -344,7 +329,21 @@ sequenceDiagram
         }
 
         // ── Init ───────────────────────────────────────────────────────────────
-        document.addEventListener('DOMContentLoaded', renderMermaid);
+        // Default is set here in JS, not in HTML — this runs after the browser
+        // would restore form state, so it always wins and every tab starts fresh.
+        const DEFAULT_DIAGRAM =
+`%% Paste your Mermaid diagram here
+flowchart TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Do something]
+    B -->|No| D[Do something else]
+    C --> E[End]
+    D --> E`;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('editor').value = DEFAULT_DIAGRAM;
+            renderMermaid();
+        });
     </script>
 </body>
 </html>
